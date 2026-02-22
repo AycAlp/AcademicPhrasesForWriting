@@ -8,6 +8,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -15,12 +16,11 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ─── Auth Helpers ────────────────────────────────────────────────────────────
-        const getUsers = () => { try { return JSON.parse(localStorage.getItem('auth-users') || '[]'); } catch { return []; } };
-        const saveUsers = (u) => localStorage.setItem('auth-users', JSON.stringify(u));
-        const getSession = () => { try { return JSON.parse(localStorage.getItem('auth-session')); } catch { return null; } };
-        const saveSession = (u) => localStorage.setItem('auth-session', JSON.stringify(u));
-        const clearSession = () => localStorage.removeItem('auth-session');
+        // ─── Supabase Client ─────────────────────────────────────────────────────────
+        const sb = supabase.createClient(
+            'https://xxhknuwjjzrctscupgwv.supabase.co',
+            'sb_publishable_ZUayxZOtbvGpaYcNcL6HiA_3OkkTYqy'
+        );
 
         // ─── Icons ───────────────────────────────────────────────────────────────────
         const EyeIcon = ({ className, onClick }) => (
@@ -89,15 +89,17 @@
                 return e;
             };
 
-            const submit = () => {
+            const [loading, setLoading] = useState(false);
+
+            const submit = async () => {
                 const e = validate();
                 setErrors(e);
                 if (Object.keys(e).length) return;
-                const users = getUsers();
-                const user = users.find(u => u.email === email.toLowerCase() && u.password === password);
-                if (!user) { setServerErr('Invalid email or password.'); return; }
-                saveSession(user);
-                onSuccess(user);
+                setLoading(true);
+                const { error } = await sb.auth.signInWithPassword({ email, password });
+                setLoading(false);
+                if (error) { setServerErr(error.message); return; }
+                // onAuthStateChange in the parent will update currentUser
             };
 
             return (
@@ -112,7 +114,9 @@
                     <div className="text-right mb-5">
                         <button onClick={() => goTo('forgot')} className="text-sm text-indigo-600 hover:underline">Forgot password?</button>
                     </div>
-                    <button onClick={submit} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">Sign In</button>
+                    <button onClick={submit} disabled={loading} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold rounded-lg transition">
+                        {loading ? 'Signing in…' : 'Sign In'}
+                    </button>
                     <p className="text-center text-sm text-gray-500 mt-5">Don't have an account? <button onClick={() => goTo('signup')} className="text-indigo-600 font-medium hover:underline">Sign up</button></p>
                 </div>
             );
@@ -140,16 +144,21 @@
                 return e;
             };
 
-            const submit = () => {
+            const [loading, setLoading] = useState(false);
+
+            const submit = async () => {
                 const e = validate();
                 setErrors(e);
                 if (Object.keys(e).length) return;
-                const users = getUsers();
-                if (users.find(u => u.email === email.toLowerCase())) { setServerErr('An account with this email already exists.'); return; }
-                const newUser = { id: Date.now(), name: name.trim(), email: email.toLowerCase(), password };
-                saveUsers([...users, newUser]);
-                saveSession(newUser);
-                onSuccess(newUser);
+                setLoading(true);
+                const { error } = await sb.auth.signUp({
+                    email,
+                    password,
+                    options: { data: { name: name.trim() } }
+                });
+                setLoading(false);
+                if (error) { setServerErr(error.message); return; }
+                // onAuthStateChange in the parent will update currentUser
             };
 
             return (
@@ -163,7 +172,9 @@
                         rightEl={showPw ? <EyeOffIcon onClick={() => setShowPw(false)} /> : <EyeIcon onClick={() => setShowPw(true)} />}
                     />
                     <Field label="Confirm Password" type={showPw ? 'text' : 'password'} value={confirm} onChange={setConfirm} icon={LockIcon} error={errors.confirm} placeholder="Repeat password" />
-                    <button onClick={submit} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition mt-1">Create Account</button>
+                    <button onClick={submit} disabled={loading} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold rounded-lg transition mt-1">
+                        {loading ? 'Creating account…' : 'Create Account'}
+                    </button>
                     <p className="text-center text-sm text-gray-500 mt-5">Already have an account? <button onClick={() => goTo('login')} className="text-indigo-600 font-medium hover:underline">Sign in</button></p>
                 </div>
             );
@@ -175,12 +186,15 @@
             const [error, setError] = useState('');
             const [sent, setSent] = useState(false);
 
-            const submit = () => {
+            const [loading, setLoading] = useState(false);
+
+            const submit = async () => {
                 if (!email) { setError('Email is required'); return; }
                 if (!/\S+@\S+\.\S+/.test(email)) { setError('Enter a valid email'); return; }
-                const users = getUsers();
-                // In a real app this would send an email; here we just simulate it
-                if (!users.find(u => u.email === email.toLowerCase())) { setError('No account found with this email.'); return; }
+                setLoading(true);
+                const { error } = await sb.auth.resetPasswordForEmail(email);
+                setLoading(false);
+                if (error) { setError(error.message); return; }
                 setSent(true);
             };
 
@@ -189,7 +203,7 @@
                     <div className="text-5xl mb-4">📬</div>
                     <h2 className="text-xl font-bold text-gray-800 mb-2">Check your inbox</h2>
                     <p className="text-gray-500 text-sm mb-6">A password reset link has been sent to <strong>{email}</strong>.<br/>
-                    <span className="text-xs text-gray-400">(Demo mode — no actual email sent)</span></p>
+                    <span className="text-xs text-gray-400">Check your inbox and follow the link.</span></p>
                     <button onClick={() => goTo('login')} className="text-indigo-600 font-medium hover:underline text-sm">Back to Sign In</button>
                 </div>
             );
@@ -199,7 +213,9 @@
                     <h2 className="text-2xl font-bold text-gray-800 mb-1">Reset password</h2>
                     <p className="text-gray-500 text-sm mb-6">We'll send a reset link to your email</p>
                     <Field label="Email" value={email} onChange={v => { setEmail(v); setError(''); }} icon={MailIcon} error={error} placeholder="you@example.com" />
-                    <button onClick={submit} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">Send Reset Link</button>
+                    <button onClick={submit} disabled={loading} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold rounded-lg transition">
+                        {loading ? 'Sending…' : 'Send Reset Link'}
+                    </button>
                     <p className="text-center text-sm text-gray-500 mt-5"><button onClick={() => goTo('login')} className="text-indigo-600 font-medium hover:underline">Back to Sign In</button></p>
                 </div>
             );
@@ -266,7 +282,8 @@
         );
 
         const AcademicPhrasesApp = () => {
-            const [currentUser, setCurrentUser] = useState(() => getSession());
+            const [currentUser, setCurrentUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
             const [authView, setAuthView] = useState('login');
             const [favorites, setFavorites] = useState([]);
             const [expandedCategories, setExpandedCategories] = useState({});
@@ -274,17 +291,26 @@
             const [activeTab, setActiveTab] = useState('browse');
             const [selectedPhrase, setSelectedPhrase] = useState(null);
 
-            // Load favorites from localStorage
+            // ── Listen for Supabase auth changes ──────────────────────────────────────
             useEffect(() => {
-                const saved = localStorage.getItem('academic-favorites');
-                if (saved) {
-                    try {
-                        setFavorites(JSON.parse(saved));
-                    } catch (e) {
-                        console.error('Failed to load favorites');
-                    }
-                }
+                sb.auth.getSession().then(({ data: { session } }) => {
+                    setCurrentUser(session?.user ?? null);
+                    setAuthLoading(false);
+                });
+                const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
+                    setCurrentUser(session?.user ?? null);
+                });
+                return () => subscription.unsubscribe();
             }, []);
+
+            // ── Load favorites from Supabase when user logs in ───────────────────────
+            useEffect(() => {
+                if (!currentUser) { setFavorites([]); return; }
+                sb.from('favorites')
+                    .select('*')
+                    .order('created_at', { ascending: true })
+                    .then(({ data }) => setFavorites(data || []));
+            }, [currentUser]);
 
             // Sample sentences for each phrase pattern
             const getSampleSentence = (phrase) => {
@@ -523,27 +549,24 @@
                 }));
             };
 
-            const addToFavorites = (phrase, category) => {
-                const newFavorite = {
-                    id: Date.now(),
+            const addToFavorites = async (phrase, category) => {
+                const row = {
+                    user_id: currentUser.id,
                     phrase,
                     category,
-                    sample: getSampleSentence(phrase),
-                    addedAt: new Date().toISOString()
+                    sample: getSampleSentence(phrase)
                 };
-                
-                const updatedFavorites = [...favorites, newFavorite];
-                setFavorites(updatedFavorites);
-                localStorage.setItem('academic-favorites', JSON.stringify(updatedFavorites));
-                
-                setSelectedPhrase(newFavorite);
-                setTimeout(() => setSelectedPhrase(null), 3000);
+                const { data, error } = await sb.from('favorites').insert(row).select().single();
+                if (!error && data) {
+                    setFavorites(prev => [...prev, data]);
+                    setSelectedPhrase(data);
+                    setTimeout(() => setSelectedPhrase(null), 3000);
+                }
             };
 
-            const removeFromFavorites = (id) => {
-                const updatedFavorites = favorites.filter(f => f.id !== id);
-                setFavorites(updatedFavorites);
-                localStorage.setItem('academic-favorites', JSON.stringify(updatedFavorites));
+            const removeFromFavorites = async (id) => {
+                await sb.from('favorites').delete().eq('id', id);
+                setFavorites(prev => prev.filter(f => f.id !== id));
             };
 
             const isFavorite = (phrase) => {
@@ -557,14 +580,18 @@
                 )
             })).filter(category => category.phrases.length > 0);
 
+            if (authLoading) return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+                    <div className="text-indigo-600 text-lg font-medium animate-pulse">Loading…</div>
+                </div>
+            );
+
             if (!currentUser) {
-                return <AuthShell view={authView} setView={setAuthView} onSuccess={setCurrentUser} />;
+                return <AuthShell view={authView} setView={setAuthView} onSuccess={() => {}} />;
             }
 
-            const handleLogout = () => {
-                clearSession();
-                setCurrentUser(null);
-                setAuthView('login');
+            const handleLogout = async () => {
+                await sb.auth.signOut();
             };
 
             return (
@@ -580,7 +607,7 @@
                             </div>
                             <div className="flex items-center gap-3">
                                 <div className="text-right hidden sm:block">
-                                    <div className="text-sm font-medium">{currentUser.name}</div>
+                                    <div className="text-sm font-medium">{currentUser.user_metadata?.name || 'User'}</div>
                                     <div className="text-indigo-200 text-xs">{currentUser.email}</div>
                                 </div>
                                 <button
